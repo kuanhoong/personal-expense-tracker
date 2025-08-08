@@ -46,6 +46,18 @@
                 <p><strong>Highest Expense Category:</strong> {{ highest_category }}</p>
             </div>
             <div class="col-md-6">
+                <div class="form-group">
+                    <label for="monthSelect"><strong>Filter by Month</strong></label>
+                    <select id="monthSelect" class="form-control">
+                        {% if not months %}
+                            <option value="" selected disabled>No data</option>
+                        {% else %}
+                            {% for month in months %}
+                                <option value="{{ month }}" {% if month == selected_month %}selected{% endif %}>{{ month }}</option>
+                            {% endfor %}
+                        {% endif %}
+                    </select>
+                </div>
                 <canvas id="expenseChart"></canvas>
             </div>
         </div>
@@ -76,34 +88,58 @@
         </table>
     </div>
     <script>
-        var ctx = document.getElementById('expenseChart').getContext('2d');
-        var myChart = new Chart(ctx, {
+        const ctx = document.getElementById('expenseChart').getContext('2d');
+        const paletteBg = [
+            'rgba(255, 99, 132, 0.8)',
+            'rgba(54, 162, 235, 0.8)',
+            'rgba(255, 206, 86, 0.8)',
+            'rgba(75, 192, 192, 0.8)',
+            'rgba(153, 102, 255, 0.8)',
+            'rgba(255, 159, 64, 0.8)'
+        ];
+        const paletteBorder = [
+            'rgba(255, 99, 132, 1)',
+            'rgba(54, 162, 235, 1)',
+            'rgba(255, 206, 86, 1)',
+            'rgba(75, 192, 192, 1)',
+            'rgba(153, 102, 255, 1)',
+            'rgba(255, 159, 64, 1)'
+        ];
+
+        let myChart = new Chart(ctx, {
             type: 'pie',
             data: {
                 labels: {{ chart_labels | safe }},
                 datasets: [{
                     label: 'Expenses by Category',
                     data: {{ chart_data | safe }},
-                    backgroundColor: [
-                        'rgba(255, 99, 132, 0.2)',
-                        'rgba(54, 162, 235, 0.2)',
-                        'rgba(255, 206, 86, 0.2)',
-                        'rgba(75, 192, 192, 0.2)',
-                        'rgba(153, 102, 255, 0.2)',
-                        'rgba(255, 159, 64, 0.2)'
-                    ],
-                    borderColor: [
-                        'rgba(255, 99, 132, 1)',
-                        'rgba(54, 162, 235, 1)',
-                        'rgba(255, 206, 86, 1)',
-                        'rgba(75, 192, 192, 1)',
-                        'rgba(153, 102, 255, 1)',
-                        'rgba(255, 159, 64, 1)'
-                    ],
+                    backgroundColor: paletteBg,
+                    borderColor: paletteBorder,
                     borderWidth: 1
                 }]
             }
         });
+
+        async function updateChartForMonth(month) {
+            try {
+                const params = month ? ('?month=' + encodeURIComponent(month)) : '';
+                const res = await fetch('/chart-data' + params);
+                const json = await res.json();
+                myChart.data.labels = json.labels;
+                myChart.data.datasets[0].data = json.data;
+                myChart.update();
+            } catch (e) {
+                console.error('Failed to update chart', e);
+            }
+        }
+
+        const monthSelect = document.getElementById('monthSelect');
+        if (monthSelect) {
+            monthSelect.addEventListener('change', function() {
+                const m = this.value;
+                updateChartForMonth(m);
+            });
+        }
     </script>
 </body>
 </html>

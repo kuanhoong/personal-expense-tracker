@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 import sqlite3
 import os
 from datetime import datetime
@@ -24,28 +24,54 @@ def get_db():
 def index():
     db = get_db()
     expenses = db.execute('SELECT * FROM expenses ORDER BY date DESC').fetchall()
-    db.close()
 
-    # Calculate chart data
-    category_totals = {}
-    for expense in expenses:
-        category_totals[expense['category']] = category_totals.get(expense['category'], 0) + expense['amount']
+    # Available months (YYYY-MM) found in data, newest first
+    months_rows = db.execute("SELECT DISTINCT substr(date, 1, 7) AS month FROM expenses ORDER BY month DESC").fetchall()
+    months = [row['month'] for row in months_rows]
 
-    chart_labels = list(category_totals.keys())
-    chart_data = list(category_totals.values())
-
-    # Calculate summary data
+    # Selected month defaults to current month if present, else latest available, else None
     current_month = datetime.now().strftime('%Y-%m')
+    selected_month = current_month if current_month in months else (months[0] if months else None)
+
+    # Chart data filtered by selected month (or empty if no data)
+    chart_labels = []
+    chart_data = []
+    if selected_month:
+        chart_rows = db.execute(
+            'SELECT category, SUM(amount) AS total FROM expenses WHERE date LIKE ? GROUP BY category',
+            (f"{selected_month}%",)
+        ).fetchall()
+        chart_labels = [row['category'] for row in chart_rows]
+        chart_data = [row['total'] for row in chart_rows]
+
+    # Calculate summary data (kept as originally implemented)
     monthly_total = 0
     for expense in expenses:
         if expense['date'].startswith(current_month):
             monthly_total += expense['amount']
 
+    # Highest category across all time (as originally implemented)
+    category_totals_all_time = {}
+    for expense in expenses:
+        category_totals_all_time[expense['category']] = (
+            category_totals_all_time.get(expense['category'], 0) + expense['amount']
+        )
     highest_category = ""
-    if category_totals:
-        highest_category = max(category_totals, key=category_totals.get)
+    if category_totals_all_time:
+        highest_category = max(category_totals_all_time, key=category_totals_all_time.get)
 
-    return render_template('index.html', expenses=expenses, chart_labels=json.dumps(chart_labels), chart_data=json.dumps(chart_data), monthly_total=monthly_total, highest_category=highest_category)
+    db.close()
+
+    return render_template(
+        'index.html',
+        expenses=expenses,
+        chart_labels=json.dumps(chart_labels),
+        chart_data=json.dumps(chart_data),
+        monthly_total=monthly_total,
+        highest_category=highest_category,
+        months=months,
+        selected_month=selected_month,
+    )
 
 @app.route('/add', methods=['POST'])
 def add_expense():
@@ -116,6 +142,30 @@ def delete_expense(id):
     db.close()
     flash('Expense deleted successfully!', 'success')
     return redirect(url_for('index'))
+
+@app.route('/chart-data')
+def chart_data():
+    """Return chart data (labels and data) for a given month (YYYY-MM). If no month
+    is provided, return all-time totals."""
+    month = request.args.get('month')
+    db = get_db()
+    if month:
+        rows = db.execute(
+            'SELECT category, SUM(amount) AS total FROM expenses WHERE date LIKE ? GROUP BY category',
+            (f"{month}%",)
+        ).fetchall()
+    else:
+        rows = db.execute(
+            'SELECT category, SUM(amount) AS total FROM expenses GROUP BY category'
+        ).fetchall()
+    db.close()
+
+    labels = [row['category'] for row in rows]
+    data = [row['total'] for row in rows]
+    return jsonify({
+        'labels': labels,
+        'data': data,
+    })
 
 if not os.path.exists(DATABASE):
     init_db()
